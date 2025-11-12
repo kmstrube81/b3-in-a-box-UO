@@ -1,0 +1,281 @@
+
+services:
+  db:
+    image: mariadb:10.6
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_B3_DB: ${MYSQL_B3_DB}
+      MYSQL_B3_USER: ${MYSQL_B3_USER}
+      MYSQL_B3_PASSWORD: ${MYSQL_B3_PASSWORD}
+      MYSQL_XLR_DB: ${MYSQL_XLR_DB}
+      MYSQL_XLR_USER: ${MYSQL_XLR_USER}
+      MYSQL_XLR_PASSWORD: ${MYSQL_XLR_PASSWORD}
+    command:
+    - --character-set-server=utf8mb4
+    - --collation-server=utf8mb4_unicode_ci
+    - --max_connections=200
+    - --sql-mode=
+    volumes:
+    - db_data:/var/lib/mysql
+    - ./_mysql-init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test:
+      - CMD
+      - mysqladmin
+      - ping
+      - -h
+      - localhost
+      - -u
+      - root
+      - -p${MYSQL_ROOT_PASSWORD}
+      interval: 5s
+      timeout: 5s
+      retries: 20
+  moddir-init:
+    image: alpine:3.20
+    container_name: coduo-moddir-init
+    environment:
+      CODUO_MOD_DIR: ${CODUO_MOD_DIR:-}
+      FTP_USER: ${FTP_USER:-codadmin}
+    volumes:
+      # if you don’t have FTP_USER in .env, just hardcode /home/codadmin here
+      - ftp_home:/home/${FTP_USER}
+      - ./coduo-data:/data
+    command: >
+      /bin/sh -lc '
+        set -e
+
+        # always make base uo dir
+        mkdir -p /data/serverfiles/uo
+
+        # if a mod dir is configured, make it and fix permissions
+        if [ -n "$CODUO_MOD_DIR" ] && [ ! -d "/data/serverfiles/${CODUO_MOD_DIR}"  ]; then
+          mkdir -p "/data/serverfiles/$CODUO_MOD_DIR"
+          chown -R 1000:1000 "/data/serverfiles/$CODUO_MOD_DIR"
+          chmod -R 775 "/data/serverfiles/$CODUO_MOD_DIR"
+          ln -sf "/data/serverfiles/uo/game.mp.uo.i386.so" "/data/serverfiles/$CODUO_MOD_DIR/game.mp.uo.i386.so"
+          chown -h 1000:1000 /data/serverfiles/$CODUO_MOD_DIR/game.mp.uo.i386.so
+        fi
+
+        # make FTP home inside the shared volume
+        mkdir -p "/home/$FTP_USER"
+      '
+    restart: "no"
+  coduo:
+    image: gameservermanagers/gameserver:coduo
+    container_name: coduo
+    environment:
+      CODUO_MOD_DIR: ${CODUO_MOD_DIR}
+    volumes:
+      - ./coduo-data:/data
+    ports:
+      - ${B3_RCON_PORT:-28960}:${B3_RCON_PORT:-28960}/udp
+      - ${B3_RCON_PORT:-28960}:${B3_RCON_PORT:-28960}/tcp
+    entrypoint: ["/bin/sh", "-lc"]
+    command:
+      - |
+        set -e
+        # Ensure instance-config dir exists
+        mkdir -p /data/config-lgsm/coduoserver
+
+        # Write coduoserver.cfg
+        # NOTE: unquoted heredoc so CODUO_* from the container env expand NOW.
+        #        LGSM vars are escaped ($$) so they remain literal in the file.
+        cat > /data/config-lgsm/coduoserver/coduoserver.cfg <<EOF
+        # Instance config for coduoserver
+        ip=0.0.0.0
+        port=${B3_RCON_PORT:-28960}
+        updateonstart="off"
+
+        # Start parameters
+        startparameters="+set sv_punkbuster 0 \
+        +set fs_basepath '\$${serverfiles}' \
+        +set fs_homepath '\$${serverfiles}' \
+        +set fs_game '${CODUO_MOD_DIR:-uo}' \
+        +set dedicated 2 \
+        +set net_ip \$${ip} \
+        +set net_port \$${port} \
+        +set sv_maxclients 64 \
+        +set rconpassword ${B3_RCON_PASSWORD} \
+        +set sv_hostName "${XLR_SERVER_NAME}" \
+        +set sv_allowDownload "1" \
+        +set sv_wwwDownload "1" \
+        +set sv_wwwBaseURL "http://${B3_RCON_IP}" \
+        +set g_log "${B3_GAME_LOG_FILE}" \
+        +set g_logsync "2" \
+        +exec server.cfg \
+        +map ${CODUO_DEFAULT_MAP:-mp_carentan}"
+        EOF
+
+        # Make sure linuxgsm owns it
+        chown -R linuxgsm:linuxgsm /data/config-lgsm
+        exec ./entrypoint.sh
+    depends_on:
+      moddir-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+  b3:
+    build: ./b3
+    restart: unless-stopped
+    environment:
+      TZ: ${TZ}
+      B3_DB_HOST: db
+      B3_DB_NAME: ${MYSQL_B3_DB}
+      B3_DB_USER: ${MYSQL_B3_USER}
+      B3_DB_PASS: ${MYSQL_B3_PASSWORD}
+      B3_RCON_IP: ${B3_RCON_IP}
+      B3_RCON_PORT: ${B3_RCON_PORT}
+      B3_RCON_PASSWORD: ${B3_RCON_PASSWORD}
+      B3_PARSER: ${B3_PARSER}
+      B3_BOT_NAME: ${B3_BOT_NAME}
+      B3_BOT_PREFIX: ${B3_BOT_PREFIX}
+      B3_GAME_LOG_FILE: ${B3_GAME_LOG_FILE}
+    depends_on:
+      db:
+        condition: service_healthy
+      coduo:
+        condition: service_started
+    volumes:
+    - type: bind
+      source: ./coduo-data/serverfiles/${CODUO_MOD_DIR:-uo}
+      target: /game-logs/
+      read_only: true
+    - ./b3/conf:/app/conf
+    - ./b3/log:/app/logs
+    - ./b3/extplugins:/app/extplugins
+  xlr-bot:
+    build: ./xlr-discord-bot
+    restart: unless-stopped
+    env_file: ./.env
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+    - type: bind
+      source: ./.env
+      target: /opt/xlrbot/cfg/.env
+      read_only: false
+  web:
+    image: nginx:alpine
+    container_name: coduo-web
+    depends_on:
+      coduo:
+        condition: service_started
+    environment:
+      CODUO_MOD_DIR: ${CODUO_MOD_DIR}
+    volumes:
+      - ./coduo-data:/data:ro
+    ports:
+      - 80:80
+    command:
+      - /bin/sh
+      - -lc
+      - |
+        set -e
+
+        rm -f /usr/share/nginx/html/index.html
+
+        # Write nginx config (autoindex on; use $$uri to avoid compose interpolation)
+        cat >/etc/nginx/conf.d/default.conf <<'EOF'
+        server {
+          listen 80;
+          server_name _;
+          root /usr/share/nginx/html;
+
+          autoindex on;
+          autoindex_exact_size off;
+          autoindex_localtime on;
+
+          # Default catch-all
+          location / { autoindex on; try_files $$uri $$uri/ =404; }
+
+          # UO folder
+          location /uo { try_files $$uri $$uri/ =404; }
+
+        }
+        EOF
+
+        # Build /uo listing
+        mkdir -p /usr/share/nginx/html/uo
+        rm -f /usr/share/nginx/html/uo/* || true
+
+        # From /data/serverfiles/uo (top-level .pk3 and .log)
+        if [ -d /data/serverfiles/uo ]; then
+          find /data/serverfiles/uo -maxdepth 1 -type f \( -name "*.pk3" -o -name "*.log" \) \
+            -exec ln -sf {} /usr/share/nginx/html/uo/ \;
+        fi
+
+        # From /data/.callofduty/uo (top-level .pk3 and .log)
+        if [ -d /data/.callofduty/uo ]; then
+          find /data/.callofduty/uo -maxdepth 1 -type f \( -name "*.pk3" -o -name "*.log" \) \
+            -exec ln -sf {} /usr/share/nginx/html/uo/ \;
+        fi
+
+        # 2) If a mod dir is set, inject its location block INSIDE the server {} using awk
+        if [ -n "$CODUO_MOD_DIR" ]; then
+          awk -v block="  location /$CODUO_MOD_DIR/ { try_files \$$uri \$$uri/ =404; }\n" '
+            BEGIN { depth=0; inserted=0 }
+            # Detect start of first server block
+            /^ *server[[:space:]]*\{/ && depth==0 { depth++; print; next }
+            /\{/ { depth++ }
+            /\}/ {
+              depth--;
+              # Before closing the first server block, insert our block once
+              if (depth==0 && !inserted) { printf "%s", block; inserted=1 }
+              print; next
+            }
+            { print }
+          ' /etc/nginx/conf.d/default.conf > /etc/nginx/conf.d/default.conf.new
+          mv /etc/nginx/conf.d/default.conf.new /etc/nginx/conf.d/default.conf
+        fi
+
+        # Build mod listing if set and present
+        if [ -n "$CODUO_MOD_DIR" ] && [ -d "/data/serverfiles/$CODUO_MOD_DIR" -o -d "/data/.callofduty/$CODUO_MOD_DIR" ]; then
+          mkdir -p "/usr/share/nginx/html/$CODUO_MOD_DIR"
+          rm -f "/usr/share/nginx/html/$CODUO_MOD_DIR/"* || true
+
+          # From /data/serverfiles/<mod> (top-level .pk3 and .log)
+          if [ -d "/data/serverfiles/$CODUO_MOD_DIR" ]; then
+            find "/data/serverfiles/$CODUO_MOD_DIR" -maxdepth 1 -type f \( -name "*.pk3" -o -name "*.log" \) \
+              -exec ln -sf {} "/usr/share/nginx/html/$CODUO_MOD_DIR/" \;
+          fi
+
+          # From /data/.callofduty/<mod> (top-level .pk3 and .log)
+          if [ -d "/data/.callofduty/$CODUO_MOD_DIR" ]; then
+            find "/data/.callofduty/$CODUO_MOD_DIR" -maxdepth 1 -type f \( -name "*.pk3" -o -name "*.log" \) \
+              -exec ln -sf {} "/usr/share/nginx/html/$CODUO_MOD_DIR/" \;
+          fi
+
+        fi
+
+        # Start nginx
+        nginx -g 'daemon off;'
+    restart: unless-stopped
+  ftp:
+    image: garethflowers/ftp-server:latest
+    container_name: coduo-ftp
+    environment:
+      FTP_USER: ${FTP_USER}
+      FTP_PASS: ${FTP_PASSWORD}
+      UID: '1000'
+      GID: '1000'
+      PASV_MIN_PORT: '40000'
+      PASV_MAX_PORT: '40009'
+      PUBLIC_IP: ${B3_RCON_IP}
+    volumes:
+      - ./coduo-data:/data
+      - ftp_home:/home/${FTP_USER}
+      - ./coduo-data/serverfiles/${CODUO_MOD_DIR:-uo}:/home/${FTP_USER}/${CODUO_MOD_DIR:-uo}
+      - ./coduo-data/serverfiles/uo:/home/${FTP_USER}/uo
+    ports:
+      - '21:21'
+      - 40000-40009:40000-40009
+    depends_on:
+      moddir-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+volumes:
+  db_data:
+  b3_log:
+  ftp_home:
