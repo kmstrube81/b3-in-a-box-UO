@@ -98,12 +98,12 @@ services:
         +set net_port \$${port} \
         +set sv_maxclients 64 \
         +set rconpassword ${B3_RCON_PASSWORD} \
-        +set sv_hostName "${XLR_SERVER_NAME}" \
-        +set sv_allowDownload "1" \
-        +set sv_wwwDownload "1" \
-        +set sv_wwwBaseURL "http://${B3_RCON_IP}" \
-        +set g_log "${B3_GAME_LOG_FILE}" \
-        +set g_logsync "2" \
+        +set sv_hostName '${XLR_SERVER_NAME}' \
+        +set sv_allowDownload '1' \
+        +set sv_wwwDownload '1' \
+        +set sv_wwwBaseURL 'http://${B3_RCON_IP}' \
+        +set g_log '${B3_GAME_LOG_FILE}' \
+        +set g_logsync '2' \
         +exec server.cfg \
         +map ${CODUO_DEFAULT_MAP:-mp_carentan}"
         EOF
