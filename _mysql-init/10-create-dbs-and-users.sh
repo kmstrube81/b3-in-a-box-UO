@@ -27,8 +27,4 @@ echo "[initdb] Creating B3 database/user…"
 create_db "${MYSQL_B3_DB}"
 create_user_and_grant "${MYSQL_B3_USER}" "${MYSQL_B3_PASSWORD}" "${MYSQL_B3_DB}"
 
-echo "[initdb] Creating XLRstats database/user…"
-create_db "${MYSQL_XLR_DB}"
-create_user_and_grant "${MYSQL_XLR_USER}" "${MYSQL_XLR_PASSWORD}" "${MYSQL_XLR_DB}"
-
 echo "[initdb] Done."
