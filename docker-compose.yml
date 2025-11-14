@@ -8,9 +8,6 @@ services:
       MYSQL_B3_DB: ${MYSQL_B3_DB}
       MYSQL_B3_USER: ${MYSQL_B3_USER}
       MYSQL_B3_PASSWORD: ${MYSQL_B3_PASSWORD}
-      MYSQL_XLR_DB: ${MYSQL_XLR_DB}
-      MYSQL_XLR_USER: ${MYSQL_XLR_USER}
-      MYSQL_XLR_PASSWORD: ${MYSQL_XLR_PASSWORD}
     command:
     - --character-set-server=utf8mb4
     - --collation-server=utf8mb4_unicode_ci
@@ -75,18 +72,27 @@ services:
     entrypoint: ["/bin/sh", "-lc"]
     command:
       - |
-        set -e
-        # Ensure instance-config dir exists
-        mkdir -p /data/config-lgsm/coduoserver
 
-        # Write coduoserver.cfg
-        # NOTE: unquoted heredoc so CODUO_* from the container env expand NOW.
-        #        LGSM vars are escaped ($$) so they remain literal in the file.
+        set -e
+
+        # Make sure /data is usable by linuxgsm
+        chown -R linuxgsm:linuxgsm /data
+
+        # First-run install: if the game binary doesn't exist, run auto-install
+        if [ ! -f /data/serverfiles/coduo_lnxded ]; then
+          echo "[install] Server files not found; Installing Server"
+          echo ""
+          echo "================================="
+          sudo -u linuxgsm ./linuxgsm.sh coduoserver
+          sudo -u linuxgsm ./coduoserver ai
+          echo "[install] Copying serverfiles"
+          cp -a /app/serverfiles/. /data/serverfiles/
+        fi
+
         cat > /data/config-lgsm/coduoserver/coduoserver.cfg <<EOF
         # Instance config for coduoserver
         ip=0.0.0.0
         port=${B3_RCON_PORT:-28960}
-        updateonstart="off"
 
         # Start parameters
         startparameters="+set sv_punkbuster 0 \
@@ -98,12 +104,12 @@ services:
         +set net_port \$${port} \
         +set sv_maxclients 64 \
         +set rconpassword ${B3_RCON_PASSWORD} \
-        +set sv_hostName "${XLR_SERVER_NAME}" \
-        +set sv_allowDownload "1" \
-        +set sv_wwwDownload "1" \
-        +set sv_wwwBaseURL "http://${B3_RCON_IP}" \
-        +set g_log "${B3_GAME_LOG_FILE}" \
-        +set g_logsync "2" \
+        +set sv_hostName '${XLR_SERVER_NAME}' \
+        +set sv_allowDownload '1' \
+        +set sv_wwwDownload '1' \
+        +set sv_wwwBaseURL 'http://${B3_RCON_IP}' \
+        +set g_log '${B3_GAME_LOG_FILE}' \
+        +set g_logsync '2' \
         +exec server.cfg \
         +map ${CODUO_DEFAULT_MAP:-mp_carentan}"
         EOF
