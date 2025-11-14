@@ -97,7 +97,7 @@ sync_b3_ini() {
 
   sed -i 's/\r$//' "$ini" || true
 
-  awk -v parser="$PARSER" \
+    awk -v parser="$PARSER" \
       -v dsn="$DB_DSN" \
       -v bot="$BOT_NAME" \
       -v prefix="$BOT_PREFIX" \
@@ -105,24 +105,24 @@ sync_b3_ini() {
       -v rip="$RCON_IP" \
       -v rport="$RCON_PORT" \
       -v rpass="$RCON_PASSWORD" '
-    BEGIN { sec = ""; seen_b3_log=0 }
+    BEGIN { sec = "" }
     /^\[/ { sec = $0 }
 
     {
       if (sec ~ /^\[b3\]/) {
-        if ($0 ~ /^[ \t]*parser[ \t]*[:=]/)        {$0="parser: " parser}
-        else if ($0 ~ /^[ \t]*database[ \t]*[:=]/) {$0="database: " dsn}
-        else if ($0 ~ /^[ \t]*bot_name[ \t]*[:=]/) {$0="bot_name: " bot}
-        else if ($0 ~ /^[ \t]*bot_prefix[ \t]*[:=]/){$0="bot_prefix: " prefix}
+        if ($0 ~ /^[ \t]*parser[ \t]*[:=]/)          { $0 = "parser: " parser }
+        else if ($0 ~ /^[ \t]*database[ \t]*[:=]/)   { $0 = "database: " dsn }
+        else if ($0 ~ /^[ \t]*bot_name[ \t]*[:=]/)   { $0 = "bot_name: " bot }
+        else if ($0 ~ /^[ \t]*bot_prefix[ \t]*[:=]/) { $0 = "bot_prefix: " prefix }
       } else if (sec ~ /^\[server\]/) {
-        if ($0 ~ /^[ \t]*game_log[ \t]*[:=]/)       {$0="game_log: " game_log}
-        else if ($0 ~ /^[ \t]*rcon_ip[ \t]*[:=]/)   {$0="rcon_ip: " rip}
-        else if ($0 ~ /^[ \t]*port[ \t]*[:=]/)      {$0="port: " rport}
-        else if ($0 ~ /^[ \t]*rcon_password[ \t]*[:=]/){$0="rcon_password: " rpass}
-        else if ($0 ~ /^[ \t]*punkbuster[ \t]*[:=]/){$0="punkbuster: off"}
+        if      ($0 ~ /^[ \t]*game_log[ \t]*[:=]/)      { $0 = "game_log: " game_log }
+        else if ($0 ~ /^[ \t]*rcon_ip[ \t]*[:=]/)       { $0 = "rcon_ip: " rip }
+        else if ($0 ~ /^[ \t]*port[ \t]*[:=]/)          { $0 = "port: " rport }
+        else if ($0 ~ /^[ \t]*rcon_password[ \t]*[:=]/) { $0 = "rcon_password: " rpass }
+        else if ($0 ~ /^[ \t]*punkbuster[ \t]*[:=]/)    { $0 = "punkbuster: off" }
       } else if (sec ~ /^\[plugins\]/) {
-        if ($0 ~ /^[ \t]*?[ \t]*xlrstats[ \t]*[:=]/) { $0 = "xlrstats: /app/conf/plugin_xlrstats.ini" }
-		if ($0 ~ /^[ \t]*?[ \t]*playercardedit[ \t]*[:=]/) { $0 = "playercardedit: /app/conf/plugin_playercardedit.xml" }
+        if      ($0 ~ /^[ \t]*xlrstats[ \t]*[:=]/)      { $0 = "xlrstats: /app/conf/plugin_xlrstats.ini" }
+        else if ($0 ~ /^[ \t]*playercardedit[ \t]*[:=]/){ $0 = "playercardedit: /app/conf/plugin_playercardedit.xml" }
       }
       print
     }
