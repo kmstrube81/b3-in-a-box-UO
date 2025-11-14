@@ -87,6 +87,8 @@ services:
           sudo -u linuxgsm ./coduoserver ai
           echo "[install] Copying serverfiles"
           cp -a /app/serverfiles/. /data/serverfiles/
+          touch /data/serverfiles/server_rdy
+          echo "Created readiness file: /data/serverfiles/server_rdy"
         fi
 
         cat > /data/config-lgsm/coduoserver/coduoserver.cfg <<EOF
@@ -203,7 +205,7 @@ services:
         EOF
         
         # Wait until UO is installed
-        GAME_FILE="/data/serverfiles/coduo_lnxded";
+        GAME_FILE="/data/serverfiles/server_rdy";
         TIMEOUT=300;
         ELAPSED=0;
         echo "Waiting for CoDUO game files at $$GAME_FILE...";
