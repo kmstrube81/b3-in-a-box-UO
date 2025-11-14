@@ -208,13 +208,13 @@ services:
         ELAPSED=0;
         echo "Waiting for CoDUO game files at $$GAME_FILE...";
         while [ ! -f "$$GAME_FILE" ]; do
-          if [ $ELAPSED -ge $TIMEOUT ]; then
-            echo "ERROR: CoDUO game files did not become ready after $TIMEOUT seconds. Exiting.";
+          if [ $$ELAPSED -ge $$TIMEOUT ]; then
+            echo "ERROR: CoDUO game files did not become ready after $$TIMEOUT seconds. Exiting.";
             exit 1;
           fi
           echo "  - not ready yet, sleeping 5s"
           sleep 5
-          ELAPSED=$((ELAPSED + 5))
+          ELAPSED=$$((ELAPSED + 5))
         done
         echo "CoDUO files present, starting nginx"
 
