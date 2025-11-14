@@ -121,7 +121,7 @@ sync_b3_ini() {
         else if ($0 ~ /^[ \t]*rcon_password[ \t]*[:=]/){$0="rcon_password: " rpass}
         else if ($0 ~ /^[ \t]*punkbuster[ \t]*[:=]/){$0="punkbuster: off"}
       } else if (sec ~ /^\[plugins\]/) {
-        if ($0 ~ /^[ \t]*?[ \t]*xlrstats[ \t]*[:=]/) { $0 = "xlrstats: /app/conf/plugin_xlrstats.ini" 
+        if ($0 ~ /^[ \t]*?[ \t]*xlrstats[ \t]*[:=]/) { $0 = "xlrstats: /app/conf/plugin_xlrstats.ini" }
 		if ($0 ~ /^[ \t]*?[ \t]*playercardedit[ \t]*[:=]/) { $0 = "playercardedit: /app/conf/plugin_playercardedit.xml" }
       }
       print
