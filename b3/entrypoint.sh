@@ -205,6 +205,7 @@ done
 
 # --- Schema bootstrap + migrations -------------------------------------------
 SQL_BASE="/opt/b3/b3/sql/mysql"
+XLR_SQL_BASE="/opt/b3/b3/plugins/xlrstats/sql/mysql"
 SQL_UPDATES_DIR="/opt/b3/b3/sql/mysql/updates"
 BASE_SQL="${SQL_BASE}/b3.sql"
 
@@ -213,6 +214,17 @@ have_clients=$(mysql -h "$DB_HOST" -u"${DB_USER}" -p"${DB_PASS}" -N -e "SHOW TAB
 if [ "$have_clients" -eq 0 ]; then
   echo "[b3-init] Importing base schema: $BASE_SQL"
   mysql -h "$DB_HOST" -u"${DB_USER}" -p"${DB_PASS}" "${DB_NAME}" < "$BASE_SQL"
+  echo "[b3-init] Importing XLRstats base schema(s) from: $XLR_SQL_BASE"
+  if [ -d "$XLR_SQL_BASE" ]; then
+    shopt -s nullglob
+    for f in "$XLR_SQL_BASE"/*.sql; do
+      echo "[b3-init]   -> running $(basename "$f")"
+      mysql -h "$DB_HOST" -u"${DB_USER}" -p"${DB_PASS}" "${DB_NAME}" < "$f"
+    done
+    shopt -u nullglob
+  else
+    echo "[b3-init] WARNING: XLRstats base dir not found at $XLR_SQL_BASE; skipping XLR base import."
+  fi
 fi
 
 mysql -h "$DB_HOST" -u"${DB_USER}" -p"${DB_PASS}" "${DB_NAME}" -e \
