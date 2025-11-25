@@ -218,8 +218,25 @@ if [ "$have_clients" -eq 0 ]; then
   if [ -d "$XLR_SQL_BASE" ]; then
     shopt -s nullglob
     for f in "$XLR_SQL_BASE"/*.sql; do
-      echo "[b3-init]   -> running $(basename "$f")"
-      mysql -h "$DB_HOST" -u"${DB_USER}" -p"${DB_PASS}" "${DB_NAME}" < "$f"
+      base="$(basename "$f" .sql)"
+
+      # Skip the *-update-* SQL files here; those are handled by the
+      # regular updates mechanism later.
+      if [[ "$base" == *-update* ]]; then
+        echo "[b3-init]   -> skipping update file $base for base import"
+        continue
+      fi
+
+      # Derive logical name and final table name, e.g.
+      #   playerstats.sql => logical 'playerstats' => table 'xlr_playerstats'
+      logical="${base%%-update*}"
+      table="xlr_${logical}"
+
+      echo "[b3-init]   -> creating table ${table} from ${base}.sql"
+
+      # Replace `%s` template placeholder with the real table name and feed into mysql
+      sed "s/\`%s\`/\`${table}\`/g" "$f" \
+        | mysql -h "$DB_HOST" -u"${DB_USER}" -p"${DB_PASS}" "${DB_NAME}"
     done
     shopt -u nullglob
   else
