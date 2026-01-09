@@ -104,69 +104,74 @@ sync_b3_ini() {
 
   # Rewrite selected keys only
   awk -v parser="$PARSER" \
-      -v dsn="$DB_DSN" \
-      -v bot="$BOT_NAME" \
-      -v prefix="$BOT_PREFIX" \
-      -v game_log="$GAME_LOG" \
-      -v rip="$RCON_IP" \
-      -v rport="$RCON_PORT" \
-      -v rpass="$RCON_PASSWORD" '
-    BEGIN {
-      # Track which INI section we are currently in (e.g. "b3", "server", "plugins")
-      sec = ""
+    -v dsn="$DB_DSN" \
+    -v bot="$BOT_NAME" \
+    -v prefix="$BOT_PREFIX" \
+    -v game_log="$GAME_LOG" \
+    -v rip="$RCON_IP" \
+    -v rport="$RCON_PORT" \
+    -v rpass="$RCON_PASSWORD" '
+	  BEGIN {
+		sec = ""
 
-      # Desired values for keys we control in each section
-      b3["parser"]      = parser
-      b3["database"]    = dsn
-      b3["bot_name"]    = bot
-      b3["bot_prefix"]  = prefix
+		b3["parser"]     = parser
+		b3["database"]   = dsn
+		b3["bot_name"]   = bot
+		b3["bot_prefix"] = prefix
 
-      server["game_log"]       = game_log
-      server["rcon_ip"]        = rip
-      server["port"]           = rport
-      server["rcon_password"]  = rpass
-      server["punkbuster"]     = "off"
+		server["game_log"]      = game_log
+		server["rcon_ip"]       = rip
+		server["port"]          = rport
+		server["rcon_password"] = rpass
+		server["punkbuster"]    = "off"
 
-      plugins["xlrstats"]       = "/app/conf/plugin_xlrstats.ini"
-      plugins["playercardedit"] = "/app/conf/plugin_playercardedit.xml"
-    }
+		plugins["xlrstats"]       = "/app/conf/plugin_xlrstats.ini"
+		plugins["playercardedit"] = "/app/conf/plugin_playercardedit.xml"
+	  }
 
-    # Section header like: [b3]
-    /^\s*\[/ {
-      sec = $0
-      gsub(/^\s*\[|\]\s*$/, "", sec)   # "[b3]" -> "b3"
-      print
-      next
-    }
+	  # Section header like: [b3]
+	  /^[[:space:]]*\[/ {
+		sec = $0
+		gsub(/^[[:space:]]*\[|\][[:space:]]*$/, "", sec)  # "[b3]" -> "b3"
+		print
+		next
+	  }
 
-    {
-      # Leave pure comments and blank lines untouched
-      if ($0 ~ /^\s*[#;]/ || $0 ~ /^\s*$/) { print; next }
+	  {
+		# Preserve comments and blanks
+		if ($0 ~ /^[[:space:]]*[#;]/ || $0 ~ /^[[:space:]]*$/) { print; next }
 
-      # Extract "key" for lines like "key: value" or "key = value"
-      # Capture leading whitespace so output stays nicely aligned.
-      if (match($0, /^([ \t]*)([A-Za-z0-9_]+)[ \t]*[:=]/, m)) {
-        indent = m[1]
-        key    = m[2]
+		# Detect key lines: "key: value" OR "key = value"
+		if ($0 ~ /^[[:space:]]*[A-Za-z0-9_]+[[:space:]]*[:=]/) {
 
-        if (sec == "b3" && (key in b3)) {
-          print indent key ": " b3[key]
-          next
-        }
-        if (sec == "server" && (key in server)) {
-          print indent key ": " server[key]
-          next
-        }
-        if (sec == "plugins" && (key in plugins)) {
-          print indent key ": " plugins[key]
-          next
-        }
-      }
+		  # indent = leading whitespace
+		  indent = $0
+		  sub(/[^[:space:]].*$/, "", indent)
 
-      # Default: keep line as-is
-      print
-    }
-  ' "$ini" > "$tmp" && mv "$tmp" "$ini"
+		  # key = trimmed line up to : or =
+		  key = $0
+		  sub(/^[[:space:]]*/, "", key)
+		  sub(/[[:space:]]*[:=].*$/, "", key)
+
+		  if (sec == "b3" && (key in b3)) {
+			print indent key ": " b3[key]
+			next
+		  }
+		  if (sec == "server" && (key in server)) {
+			print indent key ": " server[key]
+			next
+		  }
+		  if (sec == "plugins" && (key in plugins)) {
+			print indent key ": " plugins[key]
+			next
+		  }
+		}
+
+		# Default: unchanged
+		print
+	  }
+	' "$ini" > "$tmp" && mv "$tmp" "$ini"
+
 
   # Normalize plugin paths and extplugins dir to /app so volume mounts are consistent.
   # This also converts legacy @b3/conf and @b3/extplugins references.
