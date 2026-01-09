@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+#set -euo pipefail for error handling
 set -euo pipefail
 
 # --- locate the example ini inside the cloned repo ---
@@ -10,6 +11,7 @@ do
   if [ -f "$CAND" ]; then TEMPLATE="$CAND"; break; fi
 done
 
+# --- fail with error if not template b3 ini exists
 if [ -z "${TEMPLATE}" ]; then
   echo "ERROR: could not find b3.distribution.ini in the image" >&2
   ls -al /opt/b3/b3/conf || true
@@ -43,27 +45,20 @@ fi
 
 OUT_INI="/app/conf/b3.ini"
 
-# --- dequote helper (because .env often contains quotes on Windows) ---
-dequote() {
-  local v="${1:-}"
-  v="${v%\"}"; v="${v#\"}"
-  printf '%s' "$v"
-}
-
-# ---- Normalize DB/envs -------------------------------------------------------
+# -- Set Var Defaults
 DB_HOST="${MYSQL_B3_HOST:-db}"
-DB_NAME="$(dequote "${MYSQL_B3_DB:-b3}")"
-DB_USER="$(dequote "${MYSQL_B3_USER:-b3user}")"
-DB_PASS="$(dequote "${MYSQL_B3_PASSWORD:-b3pass}")"
+DB_NAME="${MYSQL_B3_DB:-b3}"
+DB_USER="${MYSQL_B3_USER:-b3user}"
+DB_PASS="${MYSQL_B3_PASSWORD:-b3pass}"
 DB_DSN="mysql://${DB_USER}:${DB_PASS}@${DB_HOST}/${DB_NAME}"
 
-PARSER="$(dequote "${B3_PARSER:-cod}")"
-BOT_NAME="$(dequote "${B3_BOT_NAME:-b3}")"
-BOT_PREFIX="$(dequote "${B3_BOT_PREFIX:-^0(^2b3^0)^7:}")"
-RCON_IP="$(dequote "${B3_RCON_IP:-host.docker.internal}")"
-RCON_PORT="$(dequote "${B3_RCON_PORT:-28960}")"
-RCON_PASSWORD="$(dequote "${B3_RCON_PASSWORD:-rconpass}")"
-GL_FILE_RAW="$(dequote "${B3_GAME_LOG_FILE:-}")"   # either filename OR full URL
+PARSER="${B3_PARSER:-cod}"
+BOT_NAME="${B3_BOT_NAME:-b3}"
+BOT_PREFIX="${B3_BOT_PREFIX:-^0(^2b3^0)^7:}"
+RCON_IP="${B3_RCON_IP:-host.docker.internal}"
+RCON_PORT="${B3_RCON_PORT:-28960}"
+RCON_PASSWORD="${B3_RCON_PASSWORD:-rconpass}"
+GL_FILE_RAW="${B3_GAME_LOG_FILE:-}"   # either filename OR full URL
 if [[ "$GL_FILE_RAW" =~ ^https?:// || "$GL_FILE_RAW" =~ ^ftp:// ]]; then
   GAME_LOG="$GL_FILE_RAW"
 else
@@ -91,13 +86,24 @@ echo "Target ini: ${OUT_INI}"
 echo "================================="
 
 # --- function: sync INI keys to env ------------------------------------------
+# --- function: sync INI keys to env ------------------------------------------
+# Purpose:
+#   Keep a volume-mounted /app/conf/b3.ini in sync with container env vars.
+#   We do NOT rewrite the whole file—only specific keys in specific sections.
+#
+# Notes:
+#   - Handles either "key: value" or "key = value" formats
+#   - Preserves comments and all unrelated settings
+#   - Also normalizes plugin paths to /app/conf and /app/extplugins afterwards
 sync_b3_ini() {
   local ini="$1"
   local tmp="${ini}.tmp"
 
-  sed -i 's/\r$//' "$ini" || true
+  # Normalize CRLF -> LF in case files were edited on Windows
+  sed -i 's/\r$//' "$ini" 2>/dev/null || true
 
-    awk -v parser="$PARSER" \
+  # Rewrite selected keys only
+  awk -v parser="$PARSER" \
       -v dsn="$DB_DSN" \
       -v bot="$BOT_NAME" \
       -v prefix="$BOT_PREFIX" \
@@ -105,30 +111,65 @@ sync_b3_ini() {
       -v rip="$RCON_IP" \
       -v rport="$RCON_PORT" \
       -v rpass="$RCON_PASSWORD" '
-    BEGIN { sec = "" }
-    /^\[/ { sec = $0 }
+    BEGIN {
+      # Track which INI section we are currently in (e.g. "b3", "server", "plugins")
+      sec = ""
+
+      # Desired values for keys we control in each section
+      b3["parser"]      = parser
+      b3["database"]    = dsn
+      b3["bot_name"]    = bot
+      b3["bot_prefix"]  = prefix
+
+      server["game_log"]       = game_log
+      server["rcon_ip"]        = rip
+      server["port"]           = rport
+      server["rcon_password"]  = rpass
+      server["punkbuster"]     = "off"
+
+      plugins["xlrstats"]       = "/app/conf/plugin_xlrstats.ini"
+      plugins["playercardedit"] = "/app/conf/plugin_playercardedit.xml"
+    }
+
+    # Section header like: [b3]
+    /^\s*\[/ {
+      sec = $0
+      gsub(/^\s*\[|\]\s*$/, "", sec)   # "[b3]" -> "b3"
+      print
+      next
+    }
 
     {
-      if (sec ~ /^\[b3\]/) {
-        if ($0 ~ /^[ \t]*parser[ \t]*[:=]/)          { $0 = "parser: " parser }
-        else if ($0 ~ /^[ \t]*database[ \t]*[:=]/)   { $0 = "database: " dsn }
-        else if ($0 ~ /^[ \t]*bot_name[ \t]*[:=]/)   { $0 = "bot_name: " bot }
-        else if ($0 ~ /^[ \t]*bot_prefix[ \t]*[:=]/) { $0 = "bot_prefix: " prefix }
-      } else if (sec ~ /^\[server\]/) {
-        if      ($0 ~ /^[ \t]*game_log[ \t]*[:=]/)      { $0 = "game_log: " game_log }
-        else if ($0 ~ /^[ \t]*rcon_ip[ \t]*[:=]/)       { $0 = "rcon_ip: " rip }
-        else if ($0 ~ /^[ \t]*port[ \t]*[:=]/)          { $0 = "port: " rport }
-        else if ($0 ~ /^[ \t]*rcon_password[ \t]*[:=]/) { $0 = "rcon_password: " rpass }
-        else if ($0 ~ /^[ \t]*punkbuster[ \t]*[:=]/)    { $0 = "punkbuster: off" }
-      } else if (sec ~ /^\[plugins\]/) {
-        if      ($0 ~ /^[ \t]*xlrstats[ \t]*[:=]/)      { $0 = "xlrstats: /app/conf/plugin_xlrstats.ini" }
-        else if ($0 ~ /^[ \t]*playercardedit[ \t]*[:=]/){ $0 = "playercardedit: /app/conf/plugin_playercardedit.xml" }
+      # Leave pure comments and blank lines untouched
+      if ($0 ~ /^\s*[#;]/ || $0 ~ /^\s*$/) { print; next }
+
+      # Extract "key" for lines like "key: value" or "key = value"
+      # Capture leading whitespace so output stays nicely aligned.
+      if (match($0, /^([ \t]*)([A-Za-z0-9_]+)[ \t]*[:=]/, m)) {
+        indent = m[1]
+        key    = m[2]
+
+        if (sec == "b3" && (key in b3)) {
+          print indent key ": " b3[key]
+          next
+        }
+        if (sec == "server" && (key in server)) {
+          print indent key ": " server[key]
+          next
+        }
+        if (sec == "plugins" && (key in plugins)) {
+          print indent key ": " plugins[key]
+          next
+        }
       }
+
+      # Default: keep line as-is
       print
     }
   ' "$ini" > "$tmp" && mv "$tmp" "$ini"
 
-  # normalize plugin paths and extplugins dir to /app
+  # Normalize plugin paths and extplugins dir to /app so volume mounts are consistent.
+  # This also converts legacy @b3/conf and @b3/extplugins references.
   sed -i -E \
     -e 's#@?b3/conf/#/app/conf/#g' \
     -e 's#(^[[:space:]]*[A-Za-z0-9_]+:[[:space:]]*)conf/#\1/app/conf/#' \
@@ -137,6 +178,7 @@ sync_b3_ini() {
     -e 's#(^[[:space:]]*[A-Za-z0-9_]+:[[:space:]]*)extplugins/#\1/app/extplugins/#' \
     "$ini"
 }
+
 
 if [ ! -f "$OUT_INI" ]; then
   echo "[b3-init] No b3.ini detected; creating from template…"
@@ -209,9 +251,11 @@ XLR_SQL_BASE="/opt/b3/b3/plugins/xlrstats/sql/mysql"
 SQL_UPDATES_DIR="/opt/b3/b3/sql/mysql/updates"
 BASE_SQL="${SQL_BASE}/b3.sql"
 
+# --- Check the db for the clients table to see if import has been done
 echo "[b3-init] Ensuring B3 schema exists and applying migrations …"
 have_clients=$(mysql -h "$DB_HOST" -u"${DB_USER}" -p"${DB_PASS}" -N -e "SHOW TABLES LIKE 'clients';" "${DB_NAME}" | wc -l || true)
 if [ "$have_clients" -eq 0 ]; then
+  # --- If no clients table import base schema
   echo "[b3-init] Importing base schema: $BASE_SQL"
   mysql -h "$DB_HOST" -u"${DB_USER}" -p"${DB_PASS}" "${DB_NAME}" < "$BASE_SQL"
   echo "[b3-init] Importing XLRstats base schema(s) from: $XLR_SQL_BASE"
@@ -220,8 +264,7 @@ if [ "$have_clients" -eq 0 ]; then
     for f in "$XLR_SQL_BASE"/*.sql; do
       base="$(basename "$f" .sql)"
 
-      # Skip the *-update-* SQL files here; those are handled by the
-      # regular updates mechanism later.
+      # Import the base b3 sql, skipping the update files from b3 repo
       if [[ "$base" == *-update* ]]; then
         echo "[b3-init]   -> skipping update file $base for base import"
         continue
@@ -244,6 +287,7 @@ if [ "$have_clients" -eq 0 ]; then
   fi
 fi
 
+# -- Create the version table for future CODUO Enhanced related updates
 mysql -h "$DB_HOST" -u"${DB_USER}" -p"${DB_PASS}" "${DB_NAME}" -e \
 "CREATE TABLE IF NOT EXISTS schema_version (
   version VARCHAR(16) NOT NULL PRIMARY KEY,
@@ -255,6 +299,8 @@ CURR_VER=$(mysql -h "$DB_HOST" -u"${DB_USER}" -p"${DB_PASS}" -N -e "SELECT COALE
 
 echo "[b3-init] Current DB version: ${CURR_VER}"
 
+
+# -- Apply CODUO b3 updates to SQL if a newer version is available.
 if [ -d "$SQL_UPDATES_DIR" ]; then
   echo "[b3-init] Looking for updates in ${SQL_UPDATES_DIR} …"
   shopt -s nullglob
@@ -271,4 +317,5 @@ else
   echo "[b3-init] No updates dir found at ${SQL_UPDATES_DIR}; skipping migrations."
 fi
 
+# -- Run b3
 exec python /opt/b3/b3_run.py -c "$OUT_INI"

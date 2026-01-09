@@ -1,7 +1,10 @@
 ﻿FROM python:2.7-slim
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 
-# Point to Debian archive (Buster is EOL) and disable Valid-Until checks
+# Point to Debian archive (Buster is EOL) and disable Valid-Until checks.
+# set -eux is for error handing
+# install dependencies like mariadb client
+# old debian is required for old python packages
 RUN set -eux; \
     printf "deb http://archive.debian.org/debian buster main\n" > /etc/apt/sources.list; \
     printf "deb http://archive.debian.org/debian-security buster/updates main\n" >> /etc/apt/sources.list; \
@@ -32,9 +35,10 @@ WORKDIR /app
 RUN mkdir -p /app/conf /app/logs
 
 COPY entrypoint.sh /entrypoint.sh
-# Strip CRLF (Windows line endings) and make executable
-RUN sed -i "s/\r$//" /entrypoint.sh && chmod +x /entrypoint.sh
-
+# Pretty sure this is handled by git Strip CRLF (Windows line endings) and make executable
+#RUN sed -i "s/\r$//" /entrypoint.sh && chmod +x /entrypoint.sh
+#Make executable
+RUN chmod +x /entrypoint.sh
 ENTRYPOINT ["/bin/bash","/entrypoint.sh"]
 
 
